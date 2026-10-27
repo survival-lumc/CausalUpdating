@@ -17,7 +17,7 @@ library(ggpubr)   # For ggarrange
 
 #############################################################################
 #load data 
-load("data.rda")
+load("simulated_data.rda")
 
 #load functions for validation of model
 source("validation-functions.R") 
@@ -28,11 +28,12 @@ source("validation-functions.R")
 
 #covariates:
 #all covariates to include in cox model
-var <- c("age", "sexM", "numb_comorb", "rr_min", "sp_o2", "crp_mg_l", "creatinine_ser_mmol_l")
+var <- c("age", "sexM", "n_comorb")
 
 #cox model fitted on first wave data
 fmla <- formula(paste("Surv(survtime, status) ~ ", paste(var, collapse = "+")))
-model_w1 <- coxph(fmla, data=datasub_w1_cc, method="breslow", x=T, y=T)
+data_orig <- filter(dat, admitted_date < as.Date("2020-06-01"))
+model_w1 <- coxph(fmla, data=data_orig, method="breslow", x=T, y=T)
 
 
 ################################################################################
@@ -40,8 +41,7 @@ model_w1 <- coxph(fmla, data=datasub_w1_cc, method="breslow", x=T, y=T)
 ################################################################################
 
 #linear predictor for new data (wave 2) based on original model
-datasub_w2_cc$lp_origmod <- predict(model_w1, newdata = datasub_w2_cc, type = "lp", reference = "zero") 
-# datasub_w2_cc$lp_origmod <- predict(model_w1, newdata = datasub_w2_cc, type = "lp", reference = "sample") ### NEW
+dat$lp_origmod <- predict(model_w1, newdata = dat, type = "lp", reference = "zero") 
 
 ################################################################################
 # --------- Intervals/periods --------------------------------------------------
@@ -50,7 +50,7 @@ startdate <- as.Date("2020-10-15") # Start validation dataset (and date of first
 enddate <- as.Date("2020-12-31")   # Predict for patients who are admitted until this date
 InDate <- as.Date("2020-08-01")    # Introduction date: Here dexamethason is introduced
 OutDate <- as.Date("2020-11-01")   # From here we have the "new standard care"
-N_period <- 18                     # Overall number of updates
+N_period <- 12                     # Overall number of updates
 newevents <- 25 
 oldevents <- 115
 
@@ -58,13 +58,13 @@ oldevents <- 115
 # creating intervals with 180 events:
 # Intervals for model fitting: 10 new events, 180 old events
 df_int_fit0 <- lapply(1:N_period, function(n_int) {
-  make_intervals(data = datasub_w2_cc, startdate, n_events = newevents, n_interval = n_int, n_oldevents=oldevents)
+  make_intervals(data = dat, startdate, n_events = newevents, n_interval = n_int, n_oldevents=oldevents)
   }
 )
 
 # Intervals for prediction: 0 old events
 df_int_predd <- lapply(1:(N_period+1), function(n_int) {
-  make_intervals(datasub_w2_cc, startdate, n_events = newevents, n_interval = n_int, n_nextevents=100 - newevents)
+  make_intervals(dat, startdate, n_events = newevents, n_interval = n_int, n_nextevents=100 - newevents)
 }
 )
 
@@ -86,8 +86,8 @@ update_periods <- lapply(1:N, function(a) {
 interventional_N <- sum(do.call(c, update_periods) == "During")
 
 period_starts <- do.call(c,startdates_pred)
-datasub_w2_cc$update_interval <- findInterval(as.Date(datasub_w2_cc$admitted_date), period_starts)
-df_pred <- filter(datasub_w2_cc, update_interval != c(0,(N+1)))
+dat$update_interval <- findInterval(as.Date(dat$admitted_date), period_starts)
+df_pred <- filter(dat, update_interval != c(0,(N+1)))
 
 df_int_pred <- lapply(1:N, function(a) filter(df_pred, update_interval == a & admitted_date <= enddate))
 df_int_pred_all <- do.call(rbind, df_int_pred)
@@ -106,14 +106,12 @@ periods <- data.frame(
 
 #no updating
 no_update <- getValidation(model_w1, df_int_pred_all)
-# no_update_int <- getValidation(model_w1, df_int_pred_int)
 
 #refitting: 100 events
 refit_cfit <- lapply(df_int_fit0, function(a) my_cox(fmla, a, method = "breslow", x=T, y=T))
 refit_cfit <- c(list(model_w1), refit_cfit[-N])
 refit_pred <- lapply(1:N, function(a) predCox(refit_cfit[[a]], df_int_pred[[a]], time = 28))
 refit <- getValidation(do.call(c, refit_pred), df_int_pred_all)
-# refit_int <- getValidation(do.call(c, refit_pred[1:interventional_N]), df_int_pred_int)
 
 #recalibration: 100 events
 recal_fmlaO <- formula("Surv(survtime, status) ~ offset(lp_origmod)")
@@ -121,7 +119,6 @@ recal_cfit <- lapply(df_int_fit0, function(a) my_cox(recal_fmlaO, a, method = "b
 recal_cfit <- c(list(model_w1), recal_cfit[-N])
 recal_pred <- lapply(1:N, function(a) predCox(recal_cfit[[a]], df_int_pred[[a]], time = 28))
 recal <- getValidation(do.call(c, recal_pred), df_int_pred_all)
-# recal_int <- getValidation(do.call(c, recal_pred[1:interventional_N]), df_int_pred_int)
 
 
 ################################################################################
@@ -146,9 +143,7 @@ mutate_dex <- function(data) {
     MV == "Invasive" ~ dexamethason_base*log(0.64) 
     )) |>
   mutate(dex_marg = dexamethason_base * log(0.83)) |>
-  mutate(lp_origmod_dex = lp_origmod + dex,
-         lp_origmod_dex_marg = lp_origmod + dex_marg) |>
-  select(-c(dexamethason))
+  mutate(lp_origmod_dex = lp_origmod + dex) 
   
   return(data)
 }
@@ -205,3 +200,4 @@ summm1[, 2:7]
 
 filename <- paste("Results/summ", newevents, "n", oldevents, "o.rda", sep = "")
 save(summm1, periods, startdate, enddate, InDate, OutDate, file = filename)
+
