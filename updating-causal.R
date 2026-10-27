@@ -4,10 +4,10 @@
 ###############################################################################
 
 #libraries needed:
-library(survival)
+library(survival)     # requires a package version >= 3.6.0, older versions code the offset differently
 library(tidyverse)
 #needed for validation functions:
-library(riskRegression)
+library(riskRegression) # version 2026.03.11 (older versions return errors)
 library(MatrixModels)
 library(geepack)
 
