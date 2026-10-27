@@ -6,7 +6,11 @@ R code repository for the paper *"Interventional updating of time-to-event predi
 
 The repository contains the following:
 
-- **`updating-causal.R`**: main R script which reproduces all analysis of the manuscript;
+- **`simulated_data.rda`**: simulated data that can be used to try out the code reported in this repo;
+
+- **`simulate_covid_survival.R`**: code used to generate **`simulated_data.rda`**;
+
+- **`updating-causal.R`**: main R script which was used for the analysis described in the manuscript;
 
 - **`SimulationFunctions.R`**: R script with the functions used in the analysis;
 
